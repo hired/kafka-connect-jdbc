@@ -1,17 +1,16 @@
 /*
- * Copyright 2016 Confluent Inc.
+ * Copyright 2018 Confluent Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed under the Confluent Community License (the "License"); you may not use
+ * this file except in compliance with the License.  You may obtain a copy of the
+ * License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.confluent.io/confluent-community-license
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OF ANY KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations under the License.
  */
 
 package io.confluent.connect.jdbc.sink;
@@ -27,12 +26,14 @@ import java.util.Set;
 import java.util.TimeZone;
 
 import io.confluent.connect.jdbc.source.JdbcSourceConnectorConfig;
+
 import io.confluent.connect.jdbc.util.DatabaseDialectRecommender;
+import io.confluent.connect.jdbc.util.DeleteEnabledRecommender;
 import io.confluent.connect.jdbc.util.EnumRecommender;
+import io.confluent.connect.jdbc.util.PrimaryKeyModeRecommender;
 import io.confluent.connect.jdbc.util.QuoteMethod;
 import io.confluent.connect.jdbc.util.StringUtils;
 import io.confluent.connect.jdbc.util.TimeZoneValidator;
-
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
@@ -102,6 +103,13 @@ public class JdbcSinkConfig extends AbstractConfig {
       "Specifies how many records to attempt to batch together for insertion into the destination"
       + " table, when possible.";
   private static final String BATCH_SIZE_DISPLAY = "Batch Size";
+
+  public static final String DELETE_ENABLED = "delete.enabled";
+  private static final String DELETE_ENABLED_DEFAULT = "false";
+  private static final String DELETE_ENABLED_DOC =
+      "Whether to treat ``null`` record values as deletes. Requires ``pk.mode`` "
+      + "to be ``record_key``.";
+  private static final String DELETE_ENABLED_DISPLAY = "Enable deletes";
 
   public static final String AUTO_CREATE = "auto.create";
   private static final String AUTO_CREATE_DEFAULT = "false";
@@ -196,7 +204,7 @@ public class JdbcSinkConfig extends AbstractConfig {
   public static final String DB_TIMEZONE_DEFAULT = "UTC";
   private static final String DB_TIMEZONE_CONFIG_DOC =
       "Name of the JDBC timezone that should be used in the connector when "
-          + "inserting time-based values. Defaults to UTC.";
+      + "inserting time-based values. Defaults to UTC.";
   private static final String DB_TIMEZONE_CONFIG_DISPLAY = "DB Time Zone";
 
   public static final String QUOTE_SQL_IDENTIFIERS_CONFIG =
@@ -283,6 +291,17 @@ public class JdbcSinkConfig extends AbstractConfig {
             ConfigDef.Width.SHORT,
             BATCH_SIZE_DISPLAY
         )
+        .define(
+            DELETE_ENABLED,
+            ConfigDef.Type.BOOLEAN,
+            DELETE_ENABLED_DEFAULT,
+            ConfigDef.Importance.MEDIUM,
+            DELETE_ENABLED_DOC, WRITES_GROUP,
+            3,
+            ConfigDef.Width.SHORT,
+            DELETE_ENABLED_DISPLAY,
+            DeleteEnabledRecommender.INSTANCE
+        )
         // Data Mapping
         .define(
             TABLE_NAME_FORMAT,
@@ -305,7 +324,8 @@ public class JdbcSinkConfig extends AbstractConfig {
             DATAMAPPING_GROUP,
             2,
             ConfigDef.Width.MEDIUM,
-            PK_MODE_DISPLAY
+            PK_MODE_DISPLAY,
+            PrimaryKeyModeRecommender.INSTANCE
         )
         .define(
             PK_FIELDS,
@@ -402,6 +422,7 @@ public class JdbcSinkConfig extends AbstractConfig {
   public final String connectionPassword;
   public final String tableNameFormat;
   public final int batchSize;
+  public final boolean deleteEnabled;
   public final int maxRetries;
   public final int retryBackoffMs;
   public final boolean autoCreate;
@@ -420,6 +441,7 @@ public class JdbcSinkConfig extends AbstractConfig {
     connectionPassword = getPasswordValue(CONNECTION_PASSWORD);
     tableNameFormat = getString(TABLE_NAME_FORMAT).trim();
     batchSize = getInt(BATCH_SIZE);
+    deleteEnabled = getBoolean(DELETE_ENABLED);
     maxRetries = getInt(MAX_RETRIES);
     retryBackoffMs = getInt(RETRY_BACKOFF_MS);
     autoCreate = getBoolean(AUTO_CREATE);
@@ -431,6 +453,11 @@ public class JdbcSinkConfig extends AbstractConfig {
     fieldsWhitelist = new HashSet<>(getList(FIELDS_WHITELIST));
     String dbTimeZone = getString(DB_TIMEZONE_CONFIG);
     timeZone = TimeZone.getTimeZone(ZoneId.of(dbTimeZone));
+
+    if (deleteEnabled && pkMode != PrimaryKeyMode.RECORD_KEY) {
+      throw new ConfigException(
+          "Primary key mode must be 'record_key' when delete support is enabled");
+    }
   }
 
   private String getPasswordValue(String key) {

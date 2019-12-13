@@ -1,17 +1,16 @@
 /*
  * Copyright 2018 Confluent Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed under the Confluent Community License (the "License"); you may not use
+ * this file except in compliance with the License.  You may obtain a copy of the
+ * License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.confluent.io/confluent-community-license
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OF ANY KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations under the License.
  */
 
 package io.confluent.connect.jdbc.dialect;
@@ -43,6 +42,8 @@ import io.confluent.connect.jdbc.util.DateTimeUtils;
 import io.confluent.connect.jdbc.util.ExpressionBuilder;
 import io.confluent.connect.jdbc.util.IdentifierRules;
 import io.confluent.connect.jdbc.util.TableId;
+import io.confluent.connect.jdbc.util.ColumnDefinition.Mutability;
+import io.confluent.connect.jdbc.util.ColumnDefinition.Nullability;
 
 /**
  * A {@link DatabaseDialect} for SQL Server.
@@ -302,6 +303,57 @@ public class SqlServerDatabaseDialect extends GenericDatabaseDialect {
            .of(nonKeyColumns, keyColumns);
     builder.append(");");
     return builder.toString();
+  }
+
+  @Override
+  protected ColumnDefinition columnDefinition(
+      ResultSet resultSet,
+      ColumnId id,
+      int jdbcType,
+      String typeName,
+      String classNameForType,
+      Nullability nullability,
+      Mutability mutability,
+      int precision,
+      int scale,
+      Boolean signedNumbers,
+      Integer displaySize,
+      Boolean autoIncremented,
+      Boolean caseSensitive,
+      Boolean searchable,
+      Boolean currency,
+      Boolean isPrimaryKey
+  ) {
+    try {
+      String isAutoIncremented = resultSet.getString(22);
+
+      if ("yes".equalsIgnoreCase(isAutoIncremented)) {
+        autoIncremented = Boolean.TRUE;
+      } else if ("no".equalsIgnoreCase(isAutoIncremented)) {
+        autoIncremented = Boolean.FALSE;
+      }
+    } catch (SQLException e) {
+      log.warn("Unable to get auto incrementing column information", e);
+    }
+
+    return super.columnDefinition(
+      resultSet,
+      id,
+      jdbcType,
+      typeName,
+      classNameForType,
+      nullability,
+      mutability,
+      precision,
+      scale,
+      signedNumbers,
+      displaySize,
+      autoIncremented,
+      caseSensitive,
+      searchable,
+      currency,
+      isPrimaryKey
+    );
   }
 
   private void transformAs(ExpressionBuilder builder, ColumnId col) {
