@@ -15,7 +15,6 @@
 
 package io.confluent.connect.jdbc.dialect;
 
-import java.util.Map;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.connect.data.Date;
 import org.apache.kafka.connect.data.Decimal;
@@ -30,12 +29,15 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import io.confluent.connect.jdbc.dialect.DatabaseDialectProvider.SubprotocolBasedProvider;
 import io.confluent.connect.jdbc.sink.metadata.SinkRecordField;
-import io.confluent.connect.jdbc.source.JdbcSourceConnectorConfig;
 import io.confluent.connect.jdbc.source.ColumnMapping;
+import io.confluent.connect.jdbc.source.JdbcSourceConnectorConfig;
 import io.confluent.connect.jdbc.util.ColumnDefinition;
 import io.confluent.connect.jdbc.util.ColumnId;
 import io.confluent.connect.jdbc.util.ExpressionBuilder;
@@ -64,6 +66,11 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
 
   private static final String JSON_TYPE_NAME = "json";
   private static final String JSONB_TYPE_NAME = "jsonb";
+  private static final String HSTORE_TYPE_NAME = "hstore";
+  private static final String CITEXT_TYPE_NAME = "citext";
+  private static final String INT4_ARRAY_TYPE_NAME = "_int4";
+  private static final String VARCHAR_ARRAY_TYPE_NAME = "_varchar";
+  private static final String TEXT_ARRAY_TYPE_NAME = "_text";
 
   /**
    * Create a new dialect instance with the given connector configuration.
@@ -124,10 +131,30 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
         builder.field(fieldName, schema);
         return fieldName;
       }
+      case Types.ARRAY: {
+        if (isInt4ArrayType(columnDefn)) {
+          SchemaBuilder arraySchemaBuilder = SchemaBuilder.array(Schema.INT32_SCHEMA);
+          builder.field(
+                  fieldName,
+                  columnDefn.isOptional()
+                          ? arraySchemaBuilder.optional().build()
+                          : arraySchemaBuilder.build()
+          );
+        } else if (isStringArrayType(columnDefn)) {
+          SchemaBuilder arraySchemaBuilder = SchemaBuilder.array(Schema.STRING_SCHEMA);
+          builder.field(
+                  fieldName,
+                  columnDefn.isOptional()
+                          ? arraySchemaBuilder.optional().build()
+                          : arraySchemaBuilder.build()
+          );
+        }
+        return fieldName;
+      }
       case Types.OTHER: {
         // Some of these types will have fixed size, but we drop this from the schema conversion
         // since only fixed byte arrays can have a fixed size
-        if (isJsonType(columnDefn)) {
+        if (isJsonType(columnDefn) || isHstoreType(columnDefn) || isCitextType(columnDefn)) {
           builder.field(
               fieldName,
               columnDefn.isOptional() ? Schema.OPTIONAL_STRING_SCHEMA : Schema.STRING_SCHEMA
@@ -165,8 +192,17 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
         }
         return rs -> rs.getBytes(col);
       }
+      case Types.ARRAY: {
+        if (isInt4ArrayType(columnDefn)) {
+          // The result is boxed.
+          return rs -> Arrays.asList((Integer[]) rs.getArray(col).getArray());
+        } else if (isStringArrayType(columnDefn)) {
+          return rs -> Arrays.asList((String[]) rs.getArray(col).getArray());
+        }
+        break;
+      }
       case Types.OTHER: {
-        if (isJsonType(columnDefn)) {
+        if (isJsonType(columnDefn) || isHstoreType(columnDefn) || isCitextType(columnDefn)) {
           return rs -> rs.getString(col);
         }
         break;
@@ -182,6 +218,27 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
   protected boolean isJsonType(ColumnDefinition columnDefn) {
     String typeName = columnDefn.typeName();
     return JSON_TYPE_NAME.equalsIgnoreCase(typeName) || JSONB_TYPE_NAME.equalsIgnoreCase(typeName);
+  }
+
+  protected boolean isHstoreType(ColumnDefinition columnDefn) {
+    String typeName = columnDefn.typeName();
+    return HSTORE_TYPE_NAME.equalsIgnoreCase(typeName);
+  }
+
+  protected boolean isCitextType(ColumnDefinition columnDefn) {
+    String typeName = columnDefn.typeName();
+    return CITEXT_TYPE_NAME.equalsIgnoreCase(typeName);
+  }
+
+  protected boolean isInt4ArrayType(ColumnDefinition columnDefn) {
+    String typeName = columnDefn.typeName();
+    return INT4_ARRAY_TYPE_NAME.equalsIgnoreCase(typeName);
+  }
+
+  protected boolean isStringArrayType(ColumnDefinition columnDefn) {
+    String typeName = columnDefn.typeName();
+    return (VARCHAR_ARRAY_TYPE_NAME.equalsIgnoreCase(typeName)
+            || TEXT_ARRAY_TYPE_NAME.equalsIgnoreCase(typeName));
   }
 
   @Override
