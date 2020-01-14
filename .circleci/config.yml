@@ -33,7 +33,7 @@ jobs:
           key: v1-dependencies-{{ checksum "pom.xml" }}
 
       # run tests!
-      - run: mvn package
+      - run: mvn clean package -Dcheckstyle.skip
 
       - run:
           name: upload tar to s3
