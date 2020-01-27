@@ -195,9 +195,23 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
       case Types.ARRAY: {
         if (isInt4ArrayType(columnDefn)) {
           // The result is boxed.
-          return rs -> Arrays.asList((Integer[]) rs.getArray(col).getArray());
+          return rs -> {
+            java.sql.Array arr = rs.getArray(col);
+            if (rs.wasNull()) {
+              return null;
+            } else {
+              return Arrays.asList((Integer[]) arr.getArray());
+            }
+          };
         } else if (isStringArrayType(columnDefn)) {
-          return rs -> Arrays.asList((String[]) rs.getArray(col).getArray());
+          return rs -> {
+            java.sql.Array arr = rs.getArray(col);
+            if (rs.wasNull()) {
+              return null;
+            } else {
+              return Arrays.asList((String[]) arr.getArray());
+            }
+          };
         }
         break;
       }
