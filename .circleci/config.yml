@@ -1,0 +1,48 @@
+version: 2
+workflows:
+  version: 2
+  default:
+    jobs:
+        - build
+
+jobs:
+  build:
+    docker:
+      - image: circleci/openjdk:8-jdk
+
+    working_directory: ~/repo
+
+    environment:
+      # Customize the JVM maximum heap limit
+      MAVEN_OPTS: -Xmx3200m
+      BUCKET: hired-etl-dev
+
+    steps:
+      - checkout
+
+      # Download and cache dependencies
+      - restore_cache:
+          keys:
+            - v1-dependencies-{{ checksum "pom.xml" }}
+
+      - run: mvn dependency:go-offline
+
+      - save_cache:
+          paths:
+            - ~/.m2
+          key: v1-dependencies-{{ checksum "pom.xml" }}
+
+      # run tests!
+      - run: mvn clean package -Dcheckstyle.skip
+
+      - run:
+          name: upload tar to s3
+          command: |
+            curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
+            unzip awscli-bundle.zip
+            sudo ./awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws
+            cd target
+            PKG=kafka-connect-jdbc_${CIRCLE_BRANCH}
+            mv kafka-connect-jdbc-*-package/share/java/kafka-connect-jdbc ${PKG}
+            tar cf ${PKG}.tar ${PKG}
+            aws s3 cp ${PKG}.tar s3://${BUCKET}/packages/kafka-connect/kafka-connect-jdbc/${PKG}.tar
